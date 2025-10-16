@@ -256,14 +256,26 @@ app.get("/stream", async (req, res) => {
       "sec-fetch-dest": "video",
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-site",
+      "cache-control": "no-cache",
+      "pragma": "no-cache",
+      "dnt": "1",
     };
 
     console.log(`Proxying stream: ${url}`);
+    console.log("Request headers:", headers);
+    
     const streamRes = await fetch(url, { headers });
 
     // Check if response is ok
     if (!streamRes.ok) {
-      return res.status(streamRes.status).json({ error: `Stream server returned ${streamRes.status}` });
+      console.log(`Stream server returned ${streamRes.status}`);
+      console.log("Response headers:", Object.fromEntries(streamRes.headers.entries()));
+      const responseText = await streamRes.text();
+      console.log("Response body:", responseText.substring(0, 500));
+      return res.status(streamRes.status).json({ 
+        error: `Stream server returned ${streamRes.status}`,
+        details: responseText.substring(0, 200)
+      });
     }
 
     const contentType = streamRes.headers.get("content-type") || "video/mp2t";
