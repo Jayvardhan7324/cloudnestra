@@ -1,5 +1,6 @@
 const express = require('express');
 const cheerio = require('cheerio');
+const { Readable } = require('stream');
 const app = express();
 
 // CORS middleware
@@ -243,15 +244,51 @@ app.get("/stream", async (req, res) => {
     console.log(`Proxying stream: ${url}`);
     const streamRes = await fetch(url, { headers });
 
-    // Forward response headers
-    res.set("Content-Type", streamRes.headers.get("content-type"));
+    // Check if response is ok
+    if (!streamRes.ok) {
+      return res.status(streamRes.status).json({ error: `Stream server returned ${streamRes.status}` });
+    }
+
+    const contentType = streamRes.headers.get("content-type") || "video/mp2t";
+    
+    // Handle HLS playlists
+    if (contentType.includes("application/vnd.apple.mpegurl") || url.includes(".m3u8")) {
+      let playlistText = await streamRes.text();
+      
+      // Extract base URL from the stream URL
+      const urlObj = new URL(url);
+      const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+      
+      // Replace relative paths with proxied absolute URLs
+      playlistText = playlistText.replace(/^(\/[^\n?#]*\.(?:m3u8|ts))$/gm, (match) => {
+        const proxiedUrl = `${baseUrl}${match}`;
+        return `/stream?url=${encodeURIComponent(proxiedUrl)}&referer=${encodeURIComponent(referer || baseUrl)}`;
+      });
+      
+      res.set("Content-Type", "application/vnd.apple.mpegurl");
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Cache-Control", "no-cache");
+      return res.send(playlistText);
+    }
+
+    // Handle regular video segments
+    res.set("Content-Type", contentType);
     res.set("Access-Control-Allow-Origin", "*");
 
     if (streamRes.headers.get("content-length")) {
       res.set("Content-Length", streamRes.headers.get("content-length"));
     }
 
-    streamRes.body.pipe(res);
+    // Handle status code for range requests
+    if (streamRes.status === 206) {
+      res.status(206);
+      if (streamRes.headers.get("content-range")) {
+        res.set("Content-Range", streamRes.headers.get("content-range"));
+      }
+    }
+
+    // Convert Web Stream to Node.js Readable Stream and pipe
+    Readable.from(streamRes.body).pipe(res);
   } catch (error) {
     console.error("Stream error:", error.message);
     res.status(500).json({ error: error.message });
