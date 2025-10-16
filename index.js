@@ -29,14 +29,19 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-function getHeaders() {
+function getHeaders(referer = "https://cloudnestra.com") {
   return {
     "accept": "*/*",
     "accept-language": "en-US,en;q=0.9",
     "user-agent": getRandomUserAgent(),
+    "referer": referer,
+    "origin": new URL(referer).origin,
     "sec-fetch-dest": "iframe",
-    "sec-fetch-mode": "no-cors",
-    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="128"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
   };
 }
 
@@ -86,7 +91,7 @@ async function extractRCPData(html, baseDOM) {
   for (const dataHash of servers) {
     try {
       const rcpUrl = `${baseDOM}/rcp/${dataHash}`;
-      const rcpRes = await fetch(rcpUrl, { headers: getHeaders() });
+      const rcpRes = await fetch(rcpUrl, { headers: getHeaders(baseDOM) });
       const rcpText = await rcpRes.text();
 
       const rcpMatch = rcpText.match(/src:\s*'([^']*)'/);
@@ -95,7 +100,7 @@ async function extractRCPData(html, baseDOM) {
       const prorcpPath = rcpMatch[1].replace("/prorcp/", "");
       const prorcpUrl = `${baseDOM}/prorcp/${prorcpPath}`;
 
-      const prorcpRes = await fetch(prorcpUrl, { headers: getHeaders() });
+      const prorcpRes = await fetch(prorcpUrl, { headers: getHeaders(baseDOM) });
       const prorcpText = await prorcpRes.text();
 
       const fileMatch = prorcpText.match(/file:\s*'([^']*)'/);
@@ -233,12 +238,24 @@ app.get("/stream", async (req, res) => {
       return res.status(400).json({ error: "Stream URL required" });
     }
 
+    // Extract the domain from the stream URL to use as referer
+    const streamUrlObj = new URL(url);
+    const streamDomain = `${streamUrlObj.protocol}//${streamUrlObj.host}`;
+    
     const headers = {
       "User-Agent": getRandomUserAgent(),
-      "Referer": referer || "https://cloudnestra.com",
+      "Referer": streamDomain + "/",
+      "Origin": streamDomain,
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Encoding": "gzip, deflate, br",
       "Range": req.headers.range || "",
+      "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="128"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+      "sec-fetch-dest": "video",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-site",
     };
 
     console.log(`Proxying stream: ${url}`);
